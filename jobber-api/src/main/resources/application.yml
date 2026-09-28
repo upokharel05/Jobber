@@ -6,6 +6,10 @@ spring:
     url: ${JOBBER_DB_URL:jdbc:postgresql://localhost:5433/jobber}
     username: ${JOBBER_DB_USERNAME:jobber}
     password: ${JOBBER_DB_PASSWORD:jobber}
+  # Render framework errors (validation, malformed JSON, ...) as RFC 9457 ProblemDetail, like our own.
+  mvc:
+    problemdetails:
+      enabled: true
 
 server:
   port: 8080
