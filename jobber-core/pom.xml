@@ -12,4 +12,12 @@
     <!-- Plain library shared by the api and worker apps. No Spring Boot plugin: it is not runnable. -->
     <artifactId>jobber-core</artifactId>
     <name>jobber-core</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

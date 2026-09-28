@@ -1,6 +1,11 @@
 spring:
   application:
     name: jobber-api
+  # Defaults match docker-compose.yml; override with env vars in other environments.
+  datasource:
+    url: ${JOBBER_DB_URL:jdbc:postgresql://localhost:5433/jobber}
+    username: ${JOBBER_DB_USERNAME:jobber}
+    password: ${JOBBER_DB_PASSWORD:jobber}
 
 server:
   port: 8080

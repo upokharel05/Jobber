@@ -15,14 +15,14 @@ them across workers, tracks their status, and handles failures and retries.
 ## Prerequisites
 
 - JDK 25
-- Docker (with Compose)
+- Docker (with Compose) — also used by the tests, which start throwaway Postgres containers
 
 Maven does not need to be installed; use the included wrapper (`./mvnw`, or `mvnw.cmd` on Windows).
 
 ## Running locally
 
 ```bash
-# Start infrastructure
+# Start infrastructure (Postgres on localhost:5433)
 docker compose up -d
 
 # Build and test everything

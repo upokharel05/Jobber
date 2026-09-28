@@ -1,6 +1,12 @@
 spring:
   application:
     name: jobber-worker
+  # Defaults match docker-compose.yml; override with env vars in other environments.
+  # The worker never migrates the schema; jobber-api owns it.
+  datasource:
+    url: ${JOBBER_DB_URL:jdbc:postgresql://localhost:5433/jobber}
+    username: ${JOBBER_DB_USERNAME:jobber}
+    password: ${JOBBER_DB_PASSWORD:jobber}
 
 # Different port from the API so both can run on one machine during development.
 server:
