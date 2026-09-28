@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Inherit Spring Boot's dependency versions and plugin defaults for every module. -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.jobber</groupId>
+    <artifactId>jobber-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>Jobber</name>
+    <description>Distributed background job scheduling and execution platform</description>
+
+    <modules>
+        <module>jobber-core</module>
+        <module>jobber-api</module>
+        <module>jobber-worker</module>
+    </modules>
+
+    <properties>
+        <java.version>25</java.version>
+    </properties>
+
+    <!-- Pin versions of our own modules so apps can depend on them without repeating versions. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.jobber</groupId>
+                <artifactId>jobber-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

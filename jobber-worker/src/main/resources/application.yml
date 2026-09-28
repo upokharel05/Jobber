@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: jobber-worker
+
+# Different port from the API so both can run on one machine during development.
+server:
+  port: 8081
