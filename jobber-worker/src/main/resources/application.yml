@@ -7,6 +7,24 @@ spring:
     url: ${JOBBER_DB_URL:jdbc:postgresql://localhost:5433/jobber}
     username: ${JOBBER_DB_USERNAME:jobber}
     password: ${JOBBER_DB_PASSWORD:jobber}
+  rabbitmq:
+    host: ${JOBBER_RABBIT_HOST:localhost}
+    port: ${JOBBER_RABBIT_PORT:5672}
+    username: ${JOBBER_RABBIT_USERNAME:jobber}
+    password: ${JOBBER_RABBIT_PASSWORD:jobber}
+    listener:
+      simple:
+        # Deliberately minimal until we design worker concurrency: one job at a time,
+        # one unacknowledged message held at a time.
+        concurrency: 1
+        prefetch: 1
+        # If handling throws, drop the message rather than requeue it in a tight loop.
+        # The job's state in the database is the source of truth; recovery sweeps come later.
+        default-requeue-rejected: false
+
+jobber:
+  worker:
+    lease-duration: 5m
 
 # Different port from the API so both can run on one machine during development.
 server:

@@ -6,10 +6,24 @@ spring:
     url: ${JOBBER_DB_URL:jdbc:postgresql://localhost:5433/jobber}
     username: ${JOBBER_DB_USERNAME:jobber}
     password: ${JOBBER_DB_PASSWORD:jobber}
+  rabbitmq:
+    host: ${JOBBER_RABBIT_HOST:localhost}
+    port: ${JOBBER_RABBIT_PORT:5672}
+    username: ${JOBBER_RABBIT_USERNAME:jobber}
+    password: ${JOBBER_RABBIT_PASSWORD:jobber}
+    # Broker acknowledges each publish once stored; the dispatcher waits for these confirms.
+    publisher-confirm-type: simple
   # Render framework errors (validation, malformed JSON, ...) as RFC 9457 ProblemDetail, like our own.
   mvc:
     problemdetails:
       enabled: true
+
+jobber:
+  dispatcher:
+    enabled: true
+    poll-interval: 500ms
+    batch-size: 100
+    confirm-timeout: 5s
 
 server:
   port: 8080

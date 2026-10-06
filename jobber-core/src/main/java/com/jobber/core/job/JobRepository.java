@@ -2,14 +2,17 @@ package com.jobber.core.job;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * All SQL for the {@code jobs} table. Shared by the API and the worker so both use exactly the
@@ -48,6 +51,92 @@ public class JobRepository {
                 .param("idempotencyKey", job.idempotencyKey())
                 .query(JOB_ROW_MAPPER)
                 .optional();
+    }
+
+    /**
+     * Locks up to {@code limit} due SCHEDULED jobs for dispatch. Must run inside a transaction; the
+     * row locks are held until it ends. SKIP LOCKED makes concurrent dispatchers take disjoint
+     * batches instead of waiting on (or double-publishing) each other's rows.
+     */
+    public List<Long> lockDueJobs(int limit) {
+        return jdbc.sql("""
+                        SELECT id FROM jobs
+                        WHERE status = 'SCHEDULED' AND run_at <= now()
+                        ORDER BY run_at
+                        LIMIT :limit
+                        FOR UPDATE SKIP LOCKED
+                        """)
+                .param("limit", limit)
+                .query(Long.class)
+                .list();
+    }
+
+    /** SCHEDULED -> QUEUED, for jobs whose messages the broker has confirmed. */
+    public int markQueued(List<Long> ids) {
+        JobStatus.SCHEDULED.requireTransitionTo(JobStatus.QUEUED);
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return jdbc.sql("""
+                        UPDATE jobs SET status = 'QUEUED', updated_at = now()
+                        WHERE id IN (:ids) AND status = 'SCHEDULED'
+                        """)
+                .param("ids", ids)
+                .update();
+    }
+
+    /**
+     * QUEUED -> RUNNING for one worker. The WHERE clause makes this a compare-and-set: if several
+     * workers receive the same job (e.g. a duplicate message), exactly one gets the row back.
+     *
+     * The dispatcher publishes before it commits QUEUED, so a message can arrive while the row is
+     * still SCHEDULED and locked by the dispatcher. A bare conditional UPDATE would see SCHEDULED,
+     * skip the row without waiting, and strand the job. Locking the row first makes us wait for the
+     * dispatcher's transaction to finish, so the UPDATE sees its outcome.
+     *
+     * @return the claimed job, or empty if it was not QUEUED (already claimed, finished, cancelled,
+     *         or the dispatch rolled back, in which case the job will be published again)
+     */
+    @Transactional
+    public Optional<Job> claim(long id, String workerId, Duration lease) {
+        JobStatus.QUEUED.requireTransitionTo(JobStatus.RUNNING);
+        jdbc.sql("SELECT id FROM jobs WHERE id = :id FOR UPDATE")
+                .param("id", id)
+                .query(Long.class)
+                .optional();
+        return jdbc.sql("""
+                        UPDATE jobs
+                        SET status = 'RUNNING',
+                            worker_id = :workerId,
+                            attempt_count = attempt_count + 1,
+                            started_at = now(),
+                            lease_expires_at = now() + make_interval(secs => :leaseSeconds),
+                            updated_at = now()
+                        WHERE id = :id AND status = 'QUEUED'
+                        RETURNING *
+                        """)
+                .param("id", id)
+                .param("workerId", workerId)
+                .param("leaseSeconds", lease.toSeconds())
+                .query(JOB_ROW_MAPPER)
+                .optional();
+    }
+
+    /**
+     * RUNNING -> SUCCEEDED. Only the worker holding the job may complete it.
+     *
+     * @return false if the job is no longer RUNNING under this worker
+     */
+    public boolean markSucceeded(long id, String workerId) {
+        JobStatus.RUNNING.requireTransitionTo(JobStatus.SUCCEEDED);
+        return jdbc.sql("""
+                        UPDATE jobs
+                        SET status = 'SUCCEEDED', finished_at = now(), lease_expires_at = NULL, updated_at = now()
+                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId
+                        """)
+                .param("id", id)
+                .param("workerId", workerId)
+                .update() == 1;
     }
 
     public Optional<Job> findById(long id) {

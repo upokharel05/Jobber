@@ -1,4 +1,4 @@
-# Local development infrastructure. The broker and Redis are added in the steps where we choose them.
+# Local development infrastructure. Redis is added in the step where we need it.
 services:
   postgres:
     image: postgres:16
@@ -17,5 +17,24 @@ services:
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: jobber-rabbitmq
+    environment:
+      # The default "guest" user may only connect from inside the container, so define our own.
+      RABBITMQ_DEFAULT_USER: jobber
+      RABBITMQ_DEFAULT_PASS: jobber   # dev-only credentials
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management UI: http://localhost:15672
+    volumes:
+      - jobber-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
 volumes:
   jobber-pgdata:
+  jobber-rabbitmq:

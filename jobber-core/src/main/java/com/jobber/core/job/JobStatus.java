@@ -43,6 +43,13 @@ public enum JobStatus {
         return allowedTransitions().contains(target);
     }
 
+    /** @throws IllegalStateException if moving from this status to {@code target} is not allowed */
+    public void requireTransitionTo(JobStatus target) {
+        if (!canTransitionTo(target)) {
+            throw new IllegalStateException("Illegal job status transition " + this + " -> " + target);
+        }
+    }
+
     public boolean isTerminal() {
         return allowedTransitions().isEmpty();
     }

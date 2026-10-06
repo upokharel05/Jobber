@@ -1,0 +1,5 @@
+# Test overrides, layered on top of src/main/resources/application.yml
+# (Spring Boot reads config/application.yml after, and in addition to, application.yml).
+jobber:
+  dispatcher:
+    enabled: false   # tests call JobDispatcher directly instead of racing a background scheduler

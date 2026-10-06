@@ -2,6 +2,7 @@ package com.jobber.core.job;
 
 import static com.jobber.core.job.JobStatus.*;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -42,6 +43,14 @@ class JobStatusTest {
     void terminalStatesAllowNoTransitions(JobStatus status) {
         assertThat(status.isTerminal()).isTrue();
         assertThat(status.allowedTransitions()).isEmpty();
+    }
+
+    @Test
+    void requireTransitionToThrowsOnlyForIllegalTransitions() {
+        SCHEDULED.requireTransitionTo(QUEUED);
+        assertThatThrownBy(() -> SUCCEEDED.requireTransitionTo(RUNNING))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SUCCEEDED -> RUNNING");
     }
 
     @Test
