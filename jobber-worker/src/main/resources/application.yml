@@ -24,11 +24,14 @@ spring:
 
 jobber:
   worker:
-    lease-duration: 5m
-    retry:
-      # Delay after attempt n: min(max-delay, base-delay * 2^(n-1)), randomized to 50-100% of that.
-      base-delay: 10s
-      max-delay: 10m
+    # A claimed job is ours until the lease expires; the heartbeat keeps extending it while we run.
+    lease-duration: 30s
+    heartbeat-interval: 10s
+  retry:
+    # Delay after attempt n: min(max-delay, base-delay * 2^(n-1)), randomized to 50-100% of that.
+    # Shared with jobber-api, which uses it when recovering jobs from dead workers; keep them equal.
+    base-delay: 10s
+    max-delay: 10m
 
 # Different port from the API so both can run on one machine during development.
 server:

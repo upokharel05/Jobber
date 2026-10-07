@@ -13,6 +13,10 @@ spring:
     password: ${JOBBER_RABBIT_PASSWORD:jobber}
     # Broker acknowledges each publish once stored; the dispatcher waits for these confirms.
     publisher-confirm-type: simple
+  task:
+    scheduling:
+      pool:
+        size: 2   # dispatcher and recovery checks run on separate threads, so neither delays the other
   # Render framework errors (validation, malformed JSON, ...) as RFC 9457 ProblemDetail, like our own.
   mvc:
     problemdetails:
@@ -24,6 +28,16 @@ jobber:
     poll-interval: 500ms
     batch-size: 100
     confirm-timeout: 5s
+  recovery:
+    enabled: true
+    lease-check-interval: 5s          # RUNNING jobs whose worker stopped heartbeating
+    stuck-queued-check-interval: 1m   # QUEUED jobs whose message was presumably lost
+    stuck-queued-threshold: 10m       # must exceed how long a job can legitimately wait in the queue
+    batch-size: 100
+  retry:
+    # Backoff for jobs recovered from dead workers. Shared with jobber-worker; keep them equal.
+    base-delay: 10s
+    max-delay: 10m
 
 server:
   port: 8080

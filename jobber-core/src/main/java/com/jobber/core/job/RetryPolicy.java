@@ -1,4 +1,4 @@
-package com.jobber.worker;
+package com.jobber.core.job;
 
 import java.time.Duration;
 import java.util.random.RandomGenerator;
@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
  * Exponential backoff with jitter: the delay doubles per attempt up to a cap, then is randomized
  * between 50% and 100% of that value ("equal jitter"). The randomness spreads out jobs that failed
  * together, e.g. during a downstream outage, so their retries don't all land at the same moment.
+ *
+ * Shared: workers use it after a failed attempt, the API's lease recovery after a worker crash.
  */
 @Component
 public class RetryPolicy {
@@ -20,8 +22,8 @@ public class RetryPolicy {
     private final RandomGenerator random;
 
     @Autowired
-    public RetryPolicy(@Value("${jobber.worker.retry.base-delay:10s}") Duration baseDelay,
-                       @Value("${jobber.worker.retry.max-delay:10m}") Duration maxDelay) {
+    public RetryPolicy(@Value("${jobber.retry.base-delay:10s}") Duration baseDelay,
+                       @Value("${jobber.retry.max-delay:10m}") Duration maxDelay) {
         this(baseDelay, maxDelay, RandomGenerator.getDefault());
     }
 

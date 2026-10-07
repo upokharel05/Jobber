@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.jobber.core.job.Job;
+import com.jobber.core.job.JobLease;
 import com.jobber.core.job.JobRepository;
+import com.jobber.core.job.RetryPolicy;
 import com.jobber.core.messaging.JobMessage;
 import com.jobber.core.messaging.JobQueueConfig;
 import com.jobber.worker.handler.JobHandlerRegistry;
@@ -50,7 +52,7 @@ public class JobExecutor {
                        RetryPolicy retryPolicy,
                        JsonMapper jsonMapper,
                        WorkerIdentity identity,
-                       @Value("${jobber.worker.lease-duration:5m}") Duration lease) {
+                       @Value("${jobber.worker.lease-duration:30s}") Duration lease) {
         this.jobs = jobs;
         this.handlers = handlers;
         this.retryPolicy = retryPolicy;
@@ -83,10 +85,11 @@ public class JobExecutor {
             return;
         }
 
-        if (jobs.markSucceeded(jobId, workerId)) {
+        if (jobs.markSucceeded(JobLease.of(job))) {
             log.info("Job {} succeeded", jobId);
         } else {
-            log.warn("Job {} finished but was no longer ours to complete", jobId);
+            log.warn("Job {} attempt {} finished, but its lease was lost (job recovered elsewhere); result discarded",
+                    jobId, job.attemptCount());
         }
     }
 
@@ -98,16 +101,17 @@ public class JobExecutor {
         boolean recorded;
         if (!permanent && attemptsLeft) {
             Duration delay = retryPolicy.delayAfterAttempt(job.attemptCount());
-            recorded = jobs.scheduleRetry(job.id(), workerId, delay, error);
+            recorded = jobs.scheduleRetry(JobLease.of(job), delay, error);
             log.warn("Job {} attempt {}/{} failed, retrying in {} ms: {}",
                     job.id(), job.attemptCount(), job.maxAttempts(), delay.toMillis(), error);
         } else {
-            recorded = jobs.markFailed(job.id(), workerId, error);
+            recorded = jobs.markFailed(JobLease.of(job), error);
             log.error("Job {} failed permanently on attempt {}/{} ({}): {}", job.id(), job.attemptCount(),
                     job.maxAttempts(), permanent ? "non-retryable error" : "attempts exhausted", error);
         }
         if (!recorded) {
-            log.warn("Job {} failed but was no longer ours to update", job.id());
+            log.warn("Job {} attempt {} failed, but its lease was lost (job recovered elsewhere); outcome discarded",
+                    job.id(), job.attemptCount());
         }
     }
 

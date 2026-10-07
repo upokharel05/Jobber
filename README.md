@@ -55,7 +55,13 @@ RabbitMQ's management UI is at http://localhost:15672 (user `jobber`, password `
    - a temporary error with attempts left -> back to `SCHEDULED`, due again after exponential backoff
      with jitter (10s, 20s, 40s ... capped at 10 min, randomized to 50-100%);
    - a `PermanentJobFailureException`, or the last attempt failing -> `FAILED` (final; see `lastError`).
-5. Messages the worker cannot process at all (unreadable, or for a job that doesn't exist) are
+5. While a job runs, its worker renews a 30s lease every 10s (one statement for all its jobs). If a
+   worker dies, its leases expire and the API's lease recovery reschedules the job with backoff (the
+   lost run counts as an attempt) or fails it if no attempts are left. Completion updates are fenced
+   on the attempt number, so a stalled "zombie" worker can never overwrite a newer attempt's result.
+   Because of this, a job can occasionally run twice: handlers should be idempotent.
+6. Jobs stuck in `QUEUED` for over 10 minutes (message lost) are sent back to `SCHEDULED` and dispatched again.
+7. Messages the worker cannot process at all (unreadable, or for a job that doesn't exist) are
    dead-lettered to the `jobber.jobs.dead` RabbitMQ queue. Job failures never go there.
 
 ## Simulating work and failures

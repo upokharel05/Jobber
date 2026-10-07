@@ -1,0 +1,4 @@
+# Test overrides, layered on top of src/main/resources/application.yml.
+jobber:
+  worker:
+    heartbeat-interval: 300ms   # fast enough for heartbeat tests to observe lease renewals

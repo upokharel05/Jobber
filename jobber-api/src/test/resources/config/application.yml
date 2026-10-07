@@ -3,3 +3,5 @@
 jobber:
   dispatcher:
     enabled: false   # tests call JobDispatcher directly instead of racing a background scheduler
+  recovery:
+    enabled: false   # likewise for JobRecovery

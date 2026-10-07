@@ -17,6 +17,7 @@ class JobStatusTest {
             "SCHEDULED, CANCELLED",
             "QUEUED,    RUNNING",
             "QUEUED,    CANCELLED",
+            "QUEUED,    SCHEDULED",  // stuck-QUEUED sweep: message presumed lost, dispatch again
             "RUNNING,   SUCCEEDED",
             "RUNNING,   SCHEDULED",  // retry, or reclaimed after a worker's lease expired
             "RUNNING,   FAILED",

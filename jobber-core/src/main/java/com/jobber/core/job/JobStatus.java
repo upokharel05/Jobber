@@ -12,6 +12,8 @@ import java.util.Set;
  *     +---- attempt failed, retries left <------+
  *                                               +---- retries exhausted --> FAILED
  * SCHEDULED / QUEUED --(cancel)--> CANCELLED
+ * QUEUED --(stuck too long: message presumed lost)--> SCHEDULED
+ * RUNNING --(lease expired: worker presumed dead)--> SCHEDULED or FAILED
  * </pre>
  *
  * This enum only decides whether a transition is legal. Guaranteeing that a single worker
@@ -21,7 +23,7 @@ public enum JobStatus {
 
     /** Waiting for {@code run_at}; also where retries and reclaimed jobs return to. */
     SCHEDULED,
-    /** Due and handed to the queue, waiting for a worker. */
+    /** Due and handed to the queue, waiting for a worker. Returns to SCHEDULED if its message is lost. */
     QUEUED,
     /** Claimed by a worker and executing. */
     RUNNING,
@@ -33,7 +35,7 @@ public enum JobStatus {
     public Set<JobStatus> allowedTransitions() {
         return switch (this) {
             case SCHEDULED -> EnumSet.of(QUEUED, CANCELLED);
-            case QUEUED -> EnumSet.of(RUNNING, CANCELLED);
+            case QUEUED -> EnumSet.of(RUNNING, SCHEDULED, CANCELLED);
             case RUNNING -> EnumSet.of(SUCCEEDED, SCHEDULED, FAILED);
             case SUCCEEDED, FAILED, CANCELLED -> EnumSet.noneOf(JobStatus.class);
         };

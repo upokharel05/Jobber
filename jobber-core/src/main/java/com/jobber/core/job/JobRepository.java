@@ -117,36 +117,53 @@ public class JobRepository {
                         """)
                 .param("id", id)
                 .param("workerId", workerId)
-                .param("leaseSeconds", lease.toSeconds())
+                .param("leaseSeconds", lease.toMillis() / 1000.0)
                 .query(JOB_ROW_MAPPER)
                 .optional();
     }
 
     /**
-     * RUNNING -> SUCCEEDED. Only the worker holding the job may complete it.
+     * Heartbeat: extends the lease on every job this worker is running, in one statement however
+     * many jobs that is. A job whose lease is allowed to lapse is presumed abandoned and recovered.
      *
-     * @return false if the job is no longer RUNNING under this worker
+     * @return the number of leases renewed
      */
-    public boolean markSucceeded(long id, String workerId) {
+    public int renewLeases(String workerId, Duration lease) {
+        return jdbc.sql("""
+                        UPDATE jobs SET lease_expires_at = now() + make_interval(secs => :leaseSeconds)
+                        WHERE worker_id = :workerId AND status = 'RUNNING'
+                        """)
+                .param("workerId", workerId)
+                .param("leaseSeconds", lease.toMillis() / 1000.0)
+                .update();
+    }
+
+    /**
+     * RUNNING -> SUCCEEDED. Only the current lease holder may complete the job.
+     *
+     * @return false if the lease is no longer current (the job was recovered and possibly re-claimed)
+     */
+    public boolean markSucceeded(JobLease lease) {
         JobStatus.RUNNING.requireTransitionTo(JobStatus.SUCCEEDED);
         return jdbc.sql("""
                         UPDATE jobs
                         SET status = 'SUCCEEDED', finished_at = now(), lease_expires_at = NULL, updated_at = now()
-                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId
+                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId AND attempt_count = :attempt
                         """)
-                .param("id", id)
-                .param("workerId", workerId)
+                .param("id", lease.jobId())
+                .param("workerId", lease.workerId())
+                .param("attempt", lease.attempt())
                 .update() == 1;
     }
 
     /**
-     * RUNNING -> SCHEDULED after a failed attempt that will be retried. The job becomes due again
-     * after {@code delay}, so the dispatcher re-publishes it like any delayed job. The delay is
+     * RUNNING -> SCHEDULED for a failed or abandoned attempt that will be retried. The job becomes due
+     * again after {@code delay}, so the dispatcher re-publishes it like any delayed job. The delay is
      * applied with the database clock, the same clock the dispatcher compares {@code run_at} against.
      *
-     * @return false if the job is no longer RUNNING under this worker
+     * @return false if the lease is no longer current
      */
-    public boolean scheduleRetry(long id, String workerId, Duration delay, String error) {
+    public boolean scheduleRetry(JobLease lease, Duration delay, String error) {
         JobStatus.RUNNING.requireTransitionTo(JobStatus.SCHEDULED);
         return jdbc.sql("""
                         UPDATE jobs
@@ -156,10 +173,11 @@ public class JobRepository {
                             worker_id = NULL,
                             lease_expires_at = NULL,
                             updated_at = now()
-                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId
+                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId AND attempt_count = :attempt
                         """)
-                .param("id", id)
-                .param("workerId", workerId)
+                .param("id", lease.jobId())
+                .param("workerId", lease.workerId())
+                .param("attempt", lease.attempt())
                 .param("delaySeconds", delay.toMillis() / 1000.0)
                 .param("error", error)
                 .update() == 1;
@@ -168,19 +186,63 @@ public class JobRepository {
     /**
      * RUNNING -> FAILED: retries exhausted or a permanent error. Terminal.
      *
-     * @return false if the job is no longer RUNNING under this worker
+     * @return false if the lease is no longer current
      */
-    public boolean markFailed(long id, String workerId, String error) {
+    public boolean markFailed(JobLease lease, String error) {
         JobStatus.RUNNING.requireTransitionTo(JobStatus.FAILED);
         return jdbc.sql("""
                         UPDATE jobs
                         SET status = 'FAILED', last_error = :error, finished_at = now(), lease_expires_at = NULL, updated_at = now()
-                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId
+                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId AND attempt_count = :attempt
                         """)
-                .param("id", id)
-                .param("workerId", workerId)
+                .param("id", lease.jobId())
+                .param("workerId", lease.workerId())
+                .param("attempt", lease.attempt())
                 .param("error", error)
                 .update() == 1;
+    }
+
+    /** A RUNNING job whose worker stopped renewing its lease. */
+    public record ExpiredLease(JobLease lease, int maxAttempts) {
+    }
+
+    /**
+     * Locks up to {@code limit} RUNNING jobs whose lease has expired. Must run inside a transaction.
+     * SKIP LOCKED lets several recovery runs (e.g. on several API instances) split the work instead
+     * of recovering the same job twice.
+     */
+    public List<ExpiredLease> lockExpiredLeases(int limit) {
+        return jdbc.sql("""
+                        SELECT id, worker_id, attempt_count, max_attempts FROM jobs
+                        WHERE status = 'RUNNING' AND lease_expires_at < now()
+                        ORDER BY lease_expires_at
+                        LIMIT :limit
+                        FOR UPDATE SKIP LOCKED
+                        """)
+                .param("limit", limit)
+                .query((rs, rowNum) -> new ExpiredLease(
+                        new JobLease(rs.getLong("id"), rs.getString("worker_id"), rs.getInt("attempt_count")),
+                        rs.getInt("max_attempts")))
+                .list();
+    }
+
+    /**
+     * QUEUED -> SCHEDULED for jobs that have sat in QUEUED longer than {@code threshold}, presumably
+     * because their message was lost. The dispatcher then publishes them again. If the original
+     * message does turn up, the conditional claim makes the extra delivery harmless.
+     *
+     * Age is measured from {@code updated_at}, which nothing changes while a job waits in QUEUED.
+     *
+     * @return the number of jobs sent back for dispatch
+     */
+    public int requeueStuckQueued(Duration threshold) {
+        JobStatus.QUEUED.requireTransitionTo(JobStatus.SCHEDULED);
+        return jdbc.sql("""
+                        UPDATE jobs SET status = 'SCHEDULED', updated_at = now()
+                        WHERE status = 'QUEUED' AND updated_at < now() - make_interval(secs => :thresholdSeconds)
+                        """)
+                .param("thresholdSeconds", threshold.toMillis() / 1000.0)
+                .update();
     }
 
     public Optional<Job> findById(long id) {
