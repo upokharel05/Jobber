@@ -21,20 +21,50 @@ public class JobQueueConfig {
     public static final String QUEUE = "jobber.jobs.ready";
     public static final String ROUTING_KEY = "ready";
 
+    /**
+     * Where RabbitMQ sends messages a worker rejects: unreadable messages, messages for jobs that
+     * don't exist, or messages whose outcome could not be recorded. This is for message failures
+     * only; a job that fails is recorded as FAILED in Postgres, not dead-lettered.
+     */
+    public static final String DEAD_LETTER_EXCHANGE = "jobber.jobs.dlx";
+    public static final String DEAD_LETTER_QUEUE = "jobber.jobs.dead";
+    public static final String DEAD_LETTER_ROUTING_KEY = "dead";
+
     @Bean
     DirectExchange jobsExchange() {
         return new DirectExchange(EXCHANGE, true, false);
     }
 
-    /** Durable, so queued messages survive a broker restart. */
+    /**
+     * Durable, so queued messages survive a broker restart. Rejected messages are dead-lettered.
+     * Queue arguments cannot change after creation: changing them requires deleting the queue.
+     */
     @Bean
     Queue readyJobsQueue() {
-        return QueueBuilder.durable(QUEUE).build();
+        return QueueBuilder.durable(QUEUE)
+                .deadLetterExchange(DEAD_LETTER_EXCHANGE)
+                .deadLetterRoutingKey(DEAD_LETTER_ROUTING_KEY)
+                .build();
     }
 
     @Bean
     Binding readyJobsBinding(Queue readyJobsQueue, DirectExchange jobsExchange) {
         return BindingBuilder.bind(readyJobsQueue).to(jobsExchange).with(ROUTING_KEY);
+    }
+
+    @Bean
+    DirectExchange deadLetterExchange() {
+        return new DirectExchange(DEAD_LETTER_EXCHANGE, true, false);
+    }
+
+    @Bean
+    Queue deadLetterQueue() {
+        return QueueBuilder.durable(DEAD_LETTER_QUEUE).build();
+    }
+
+    @Bean
+    Binding deadLetterBinding(Queue deadLetterQueue, DirectExchange deadLetterExchange) {
+        return BindingBuilder.bind(deadLetterQueue).to(deadLetterExchange).with(DEAD_LETTER_ROUTING_KEY);
     }
 
     /**

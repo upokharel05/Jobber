@@ -51,3 +51,22 @@ RabbitMQ's management UI is at http://localhost:15672 (user `jobber`, password `
    broker's publisher confirms, then marks them `QUEUED`.
 3. A worker receives the ID, claims the job (`QUEUED` -> `RUNNING`) with a conditional update so only
    one worker can win, runs it, and marks it `SUCCEEDED`.
+4. If the handler throws, the worker records the outcome in Postgres and acknowledges the message:
+   - a temporary error with attempts left -> back to `SCHEDULED`, due again after exponential backoff
+     with jitter (10s, 20s, 40s ... capped at 10 min, randomized to 50-100%);
+   - a `PermanentJobFailureException`, or the last attempt failing -> `FAILED` (final; see `lastError`).
+5. Messages the worker cannot process at all (unreadable, or for a job that doesn't exist) are
+   dead-lettered to the `jobber.jobs.dead` RabbitMQ queue. Job failures never go there.
+
+## Simulating work and failures
+
+Job handlers are currently simulated. Control them through an optional `simulate` object in the payload:
+
+```json
+{"type": "data.process", "maxAttempts": 3,
+ "payload": {"simulate": {"durationMs": 500, "failTimes": 2, "permanentFailure": false}}}
+```
+
+- `durationMs`: how long the "work" takes (default depends on the job type)
+- `failTimes`: fail temporarily on attempts 1..n, then succeed
+- `permanentFailure`: fail permanently on the first attempt

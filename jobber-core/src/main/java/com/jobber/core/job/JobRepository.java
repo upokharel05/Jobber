@@ -139,6 +139,50 @@ public class JobRepository {
                 .update() == 1;
     }
 
+    /**
+     * RUNNING -> SCHEDULED after a failed attempt that will be retried. The job becomes due again
+     * after {@code delay}, so the dispatcher re-publishes it like any delayed job. The delay is
+     * applied with the database clock, the same clock the dispatcher compares {@code run_at} against.
+     *
+     * @return false if the job is no longer RUNNING under this worker
+     */
+    public boolean scheduleRetry(long id, String workerId, Duration delay, String error) {
+        JobStatus.RUNNING.requireTransitionTo(JobStatus.SCHEDULED);
+        return jdbc.sql("""
+                        UPDATE jobs
+                        SET status = 'SCHEDULED',
+                            run_at = now() + make_interval(secs => :delaySeconds),
+                            last_error = :error,
+                            worker_id = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = now()
+                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId
+                        """)
+                .param("id", id)
+                .param("workerId", workerId)
+                .param("delaySeconds", delay.toMillis() / 1000.0)
+                .param("error", error)
+                .update() == 1;
+    }
+
+    /**
+     * RUNNING -> FAILED: retries exhausted or a permanent error. Terminal.
+     *
+     * @return false if the job is no longer RUNNING under this worker
+     */
+    public boolean markFailed(long id, String workerId, String error) {
+        JobStatus.RUNNING.requireTransitionTo(JobStatus.FAILED);
+        return jdbc.sql("""
+                        UPDATE jobs
+                        SET status = 'FAILED', last_error = :error, finished_at = now(), lease_expires_at = NULL, updated_at = now()
+                        WHERE id = :id AND status = 'RUNNING' AND worker_id = :workerId
+                        """)
+                .param("id", id)
+                .param("workerId", workerId)
+                .param("error", error)
+                .update() == 1;
+    }
+
     public Optional<Job> findById(long id) {
         return jdbc.sql("SELECT * FROM jobs WHERE id = :id")
                 .param("id", id)

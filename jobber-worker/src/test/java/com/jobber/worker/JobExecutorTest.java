@@ -4,43 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
-import java.time.Instant;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import com.jobber.core.job.Job;
-import com.jobber.core.job.JobPriority;
-import com.jobber.core.job.JobRepository;
 import com.jobber.core.job.JobStatus;
-import com.jobber.core.job.JobType;
-import com.jobber.core.job.NewJob;
-import com.jobber.core.messaging.JobMessage;
-import com.jobber.core.messaging.JobQueueConfig;
 
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
-class JobExecutorTest {
-
-    @Autowired
-    JobRepository jobs;
-
-    @Autowired
-    RabbitTemplate rabbit;
-
-    @Autowired
-    JdbcClient jdbc;
-
-    @Autowired
-    WorkerIdentity identity;
-
-    @Autowired
-    TransactionTemplate transaction;
+/** The happy path and delivery edge cases (duplicates, early arrival, stale messages). */
+class JobExecutorTest extends WorkerIntegrationTest {
 
     @Test
     void claimsRunsAndCompletesQueuedJob() {
@@ -102,32 +73,5 @@ class JobExecutorTest {
         Job untouched = jobs.findById(scheduled).orElseThrow();
         assertThat(untouched.status()).isEqualTo(JobStatus.SCHEDULED);
         assertThat(untouched.attemptCount()).isZero();
-    }
-
-    private long insertWithStatus(JobStatus status) {
-        long id = jobs.insertIfAbsent(new NewJob(JobType.EMAIL_SEND, "{}", JobPriority.NORMAL, Instant.now(), 3, null))
-                .orElseThrow()
-                .id();
-        // Put the row directly into the state under test, bypassing the dispatcher.
-        jdbc.sql("UPDATE jobs SET status = ? WHERE id = ?").params(status.name(), id).update();
-        return id;
-    }
-
-    private void publish(long id) {
-        rabbit.convertAndSend(JobQueueConfig.EXCHANGE, JobQueueConfig.ROUTING_KEY, new JobMessage(id));
-    }
-
-    private static void sleep(Duration duration) {
-        try {
-            Thread.sleep(duration);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private Job awaitStatus(long id, JobStatus expected) {
-        return await().atMost(Duration.ofSeconds(10))
-                .until(() -> jobs.findById(id).orElseThrow(), job -> job.status() == expected);
     }
 }

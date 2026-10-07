@@ -18,13 +18,17 @@ spring:
         # one unacknowledged message held at a time.
         concurrency: 1
         prefetch: 1
-        # If handling throws, drop the message rather than requeue it in a tight loop.
-        # The job's state in the database is the source of truth; recovery sweeps come later.
+        # A message the listener rejects is not requeued (that would loop); RabbitMQ dead-letters it
+        # to jobber.jobs.dead instead. Job failures never get here: they are recorded in Postgres.
         default-requeue-rejected: false
 
 jobber:
   worker:
     lease-duration: 5m
+    retry:
+      # Delay after attempt n: min(max-delay, base-delay * 2^(n-1)), randomized to 50-100% of that.
+      base-delay: 10s
+      max-delay: 10m
 
 # Different port from the API so both can run on one machine during development.
 server:
